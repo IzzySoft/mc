@@ -1396,7 +1396,7 @@ panel_compute_totals (const WPanel * panel, dirsize_status_msg_t * sm, size_t * 
 /** Initialize variables for progress bars */
 static FileProgressStatus
 panel_operate_init_totals (const WPanel * panel, const char *source, file_op_context_t * ctx,
-                           filegui_dialog_type_t dialog_type)
+                           gboolean compute_totals, filegui_dialog_type_t dialog_type)
 {
     FileProgressStatus status;
 
@@ -1405,7 +1405,7 @@ panel_operate_init_totals (const WPanel * panel, const char *source, file_op_con
         return FILE_CONT;
 #endif
 
-    if (verbose && file_op_compute_totals)
+    if (verbose && compute_totals)
     {
         dirsize_status_msg_t dsm;
 
@@ -1649,10 +1649,18 @@ operate_single_file (const WPanel * panel, FileOperation operation, file_op_tota
     src = vfs_path_as_str (src_vpath);
 
     is_file = !S_ISDIR (src_stat->st_mode);
+    /* Is link to directory? */
+    if (is_file)
+    {
+        gboolean is_link;
+
+        is_link = file_is_symlink_to_dir (src_vpath, src_stat, NULL);
+        is_file = !(is_link && ctx->follow_links);
+    }
 
     if (operation == OP_DELETE)
     {
-        value = panel_operate_init_totals (panel, src, ctx, dialog_type);
+        value = panel_operate_init_totals (panel, src, ctx, !is_file, dialog_type);
         if (value == FILE_CONT)
         {
             if (is_file)
@@ -1678,14 +1686,23 @@ operate_single_file (const WPanel * panel, FileOperation operation, file_op_tota
             switch (operation)
             {
             case OP_COPY:
-                value = panel_operate_init_totals (panel, src, ctx, dialog_type);
+                value = panel_operate_init_totals (panel, src, ctx, !is_file, dialog_type);
                 if (value == FILE_CONT)
                 {
                     /* we use file_mask_op_follow_links only with OP_COPY */
                     vfs_path_free (src_vpath);
                     src_vpath = vfs_path_from_str (src);
                     ctx->stat_func (src_vpath, src_stat);
+
                     is_file = !S_ISDIR (src_stat->st_mode);
+                    /* Is link to directory? */
+                    if (is_file)
+                    {
+                        gboolean is_link;
+
+                        is_link = file_is_symlink_to_dir (src_vpath, src_stat, NULL);
+                        is_file = !(is_link && ctx->follow_links);
+                    }
 
                     if (is_file)
                         value = copy_file_file (tctx, ctx, src, dest);
@@ -1744,7 +1761,7 @@ operate_single_file (const WPanel * panel, FileOperation operation, file_op_tota
                     else
                     {
                         /* copy + delete */
-                        value = panel_operate_init_totals (panel, src, ctx, dialog_type);
+                        value = panel_operate_init_totals (panel, src, ctx, !is_file, dialog_type);
                         if (value == FILE_CONT)
                         {
                             if (is_file)
@@ -3205,7 +3222,8 @@ panel_operate (void *source_panel, FileOperation operation, gboolean force_singl
          * some directory movements can be a cross-filesystem and directory scanning is useful
          * for those directories only. */
 
-        if (panel_operate_init_totals (panel, NULL, ctx, dialog_type) == FILE_CONT)
+        if (panel_operate_init_totals (panel, NULL, ctx, file_op_compute_totals, dialog_type) ==
+            FILE_CONT)
         {
             /* Loop for every file, perform the actual copy operation */
             for (i = 0; i < panel->dir.len; i++)
