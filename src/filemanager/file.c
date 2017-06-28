@@ -1700,9 +1700,47 @@ operate_single_file (const WPanel * panel, FileOperation operation, file_op_tota
 
                     dest_vpath = vfs_path_from_str (dest);
 
-                    /* try rename */
-                    if (mc_rename (src_vpath, dest_vpath) == 0)
+                    /* If destination file exists, mc_rename() overwrites it silently.
+                     * Check the destination file before rename. */
+                    if (mc_lstat (dest_vpath, &dest_stat) == 0)
+                    {
+                        if (S_ISDIR (dest_stat.st_mode))
+                        {
+                            message (D_ERROR, MSG_ERROR, _("Cannot overwrite directory \"%s\""),
+                                     dest);
+                            do_refresh ();
+                            value = FILE_SKIP;
+                            break;
+                        }
+
+                        if (confirm_overwrite)
+                        {
+#ifdef ENABLE_BACKGROUND
+                            if (!mc_global.we_are_background)
+#endif
+                            {
+                                /* query_replace() via file_progress_real_query_replace() wants ui */
+                                file_op_context_create_ui (ctx, TRUE, dialog_type);
+                            }
+
+                            value = query_replace (ctx, dest, src_stat, &dest_stat);
+                            if (value != FILE_CONT)
+                                break;
+                        }
+                    }
+
+                    if (ctx->do_append)
+                    {
+                        /* don't show query dialog again */
+                        tctx->ask_overwrite = FALSE;
+
+                        value = copy_file_file (tctx, ctx, src, dest);
+                    }
+                    else if (mc_rename (src_vpath, dest_vpath) == 0)
+                    {
+                        /* try rename */
                         value = FILE_CONT;
+                    }
                     else
                     {
                         /* copy + delete */
